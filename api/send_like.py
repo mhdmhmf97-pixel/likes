@@ -80,11 +80,11 @@ def send_like_request(token, TARGET):
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
         if resp.status_code == 200:
-            return {"token": token[:20] + "...", "status": "success"}
+            return {"token": token[:20]+"...", "status": "success"}
         else:
-            return {"token": token[:20] + "...", "status": f"failed ({resp.status_code})"}
-    except httpx.RequestError as e:
-        return {"token": token[:20] + "...", "status": f"error ({e})"}
+            return {"token": token[:20]+"...", "status": f"failed ({resp.status_code})"}
+    except Exception as e:
+        return {"token": token[:20]+"...", "status": f"error ({e})"}
 
 @app.route("/send_like", methods=["GET"])
 def send_like():
@@ -99,11 +99,9 @@ def send_like():
 
     now = time.time()
     last_sent = last_sent_cache.get(player_id_int, 0)
-    seconds_since_last = now - last_sent
-    if seconds_since_last < 86400:
-        remaining = int(86400 - seconds_since_last)
+    if now - last_sent < 86400:
         return jsonify({"error": "Likes already sent within last 24 hours",
-                        "seconds_until_next_allowed": remaining}), 429
+                        "seconds_until_next_allowed": int(86400 - (now - last_sent))}), 429
 
     # player info
     try:
@@ -113,9 +111,9 @@ def send_like():
             return jsonify({"error": "Failed to fetch player info"}), 500
         info_json = resp.json()
         account_info = info_json.get("AccountInfo", {})
-        player_name = account_info.get("AccountName", "Unknown")
-        player_uid = account_info.get("accountId", player_id_int)
-        likes_before = account_info.get("AccountLikes", 0)
+        player_name = account_info.get("AccountName","Unknown")
+        player_uid = account_info.get("accountId",player_id_int)
+        likes_before = account_info.get("AccountLikes",0)
     except Exception as e:
         return jsonify({"error": f"Error fetching player info: {e}"}), 500
 
@@ -125,7 +123,7 @@ def send_like():
         tokens_dict = token_data.get("tokens", {})
         if not tokens_dict:
             return jsonify({"error": "No tokens found"}), 500
-        token_items = list(tokens_dict.items())  # [(uid, token), ...]
+        token_items = list(tokens_dict.items())
         random.shuffle(token_items)
     except Exception as e:
         return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
@@ -139,36 +137,31 @@ def send_like():
     likes_sent = 0
     max_likes = 100
 
-    def worker(uid, token):
-        nonlocal likes_sent
-        if not can_use_token(uid):
-            return None, {"token": token[:20] + "...", "status": "skipped (daily limit)"}
-
-        res = send_like_request(token, TARGET)
-
-        if res["status"] == "success":
-            with lock:
-                if likes_sent < max_likes:
-                    likes_sent += 1
-                    increment_usage(uid)
-                    return res, None
-        # فشل التوكن
-        return None, res
-
-    with ThreadPoolExecutor(max_workers=100) as executor:
-        futures = [executor.submit(worker, uid, token) for uid, token in token_items]
-        for future in as_completed(futures):
-            ok, fail = future.result()
-            if ok:
-                results.append(ok)
-            if fail:
-                failed.append(fail)
-            with lock:
+    # تعويض تلقائي: حاول كل التوكنات حتى توصل 100 لايك
+    while likes_sent < max_likes:
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = {executor.submit(send_like_request, token, TARGET): (uid, token) for uid, token in token_items if can_use_token(uid)}
+            if not futures:
+                break  # لا توكنات صالحة
+            for future in as_completed(futures):
+                uid, token = futures[future]
+                res = future.result()
+                if res["status"] == "success":
+                    with lock:
+                        if likes_sent < max_likes:
+                            likes_sent += 1
+                            increment_usage(uid)
+                            results.append(res)
+                else:
+                    failed.append(res)
                 if likes_sent >= max_likes:
                     break
+        # إذا انتهت كل التوكنات الصالحة ولم نصل 100، نوقف
+        if likes_sent < max_likes and all(not can_use_token(uid) for uid, _ in token_items):
+            break
 
-    likes_after = likes_before + likes_sent
     last_sent_cache[player_id_int] = now
+    likes_after = likes_before + likes_sent
 
     return jsonify({
         "player_id": player_uid,
