@@ -137,13 +137,12 @@ def send_like():
     likes_sent = 0
     max_likes = 100
 
-    # التعويض التلقائي بدون Retry
+    # تعويض تلقائي: حاول كل التوكنات حتى توصل 100 لايك
     while likes_sent < max_likes:
         with ThreadPoolExecutor(max_workers=50) as executor:
-            futures = {executor.submit(send_like_request, token, TARGET): (uid, token) 
-                       for uid, token in token_items if can_use_token(uid)}
+            futures = {executor.submit(send_like_request, token, TARGET): (uid, token) for uid, token in token_items if can_use_token(uid)}
             if not futures:
-                break
+                break  # لا توكنات صالحة
             for future in as_completed(futures):
                 uid, token = futures[future]
                 res = future.result()
@@ -157,7 +156,7 @@ def send_like():
                     failed.append(res)
                 if likes_sent >= max_likes:
                     break
-        # إذا لم يعد هناك أي توكن صالح
+        # إذا انتهت كل التوكنات الصالحة ولم نصل 100، نوقف
         if likes_sent < max_likes and all(not can_use_token(uid) for uid, _ in token_items):
             break
 
