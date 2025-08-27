@@ -125,7 +125,7 @@ def send_like():
             return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
 
         # إرسال اللايك بالتوازي
-        with ThreadPoolExecutor(max_workers=50) as executor:
+        with ThreadPoolExecutor(max_workers=200) as executor:
             futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
                        for uid, token in token_items}
             for future in as_completed(futures):
