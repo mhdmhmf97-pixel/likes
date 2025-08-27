@@ -58,6 +58,7 @@ def send_like_request(token, TARGET):
     }
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
+        # نعرض الرد كاملاً حتى لو كان 200
         return {
             "token": token[:20]+"...",
             "status_code": resp.status_code,
@@ -111,22 +112,22 @@ def send_like():
     try:
         token_data = httpx.get("https://aauto-token.onrender.com/api/get_jwt", timeout=50).json()
         tokens_dict = token_data.get("tokens", {})
-        token_items = list(tokens_dict.values())  # فقط التوكن نفسه
+        token_items = list(tokens_dict.values())
         random.shuffle(token_items)
     except Exception as e:
         return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
 
-    # استمر حتى نصل لعدد اللايكات المطلوبة أو تنتهي التوكنات
+    # استمر حتى نصل لعدد اللايكات المطلوبة أو تنتهي كل التوكنات
     while likes_sent < max_likes:
         if not token_items:
-            break  # لا توكنات متبقية
+            break
 
         with ThreadPoolExecutor(max_workers=20) as executor:
             futures = {executor.submit(send_like_request, token, TARGET): token for token in token_items}
             for future in as_completed(futures):
                 res = future.result()
-                # فقط اللايكات الحقيقية تعتبر نجاح
-                if res["status_code"] == 200 and res["response_text"] == "":
+                # نعرض كل الردود حتى 200
+                if res["status_code"] == 200:
                     with lock:
                         if likes_sent < max_likes:
                             likes_sent += 1
@@ -136,7 +137,7 @@ def send_like():
                 if likes_sent >= max_likes:
                     break
 
-        # إزالة التوكنات الفاشلة أو المستهلكة من القائمة
+        # إزالة التوكنات الفاشلة أو المستهلكة
         token_items = [t for t in token_items if t not in [f["token"][:20]+"..." for f in failed]]
 
     last_sent_cache[player_id_int] = now
