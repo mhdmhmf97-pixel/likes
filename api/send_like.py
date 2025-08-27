@@ -58,12 +58,13 @@ def send_like_request(token, TARGET):
     }
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
-        if resp.status_code == 200:
-            return {"token": token[:20]+"...", "status": "success"}
-        else:
-            return {"token": token[:20]+"...", "status": f"failed ({resp.status_code})"}
+        try:
+            resp_json = resp.json()
+        except:
+            resp_json = {"raw_response": resp.text}
+        return {"token": token[:20]+"...", "status_code": resp.status_code, "response": resp_json}
     except Exception as e:
-        return {"token": token[:20]+"...", "status": f"error ({e})"}
+        return {"token": token[:20]+"...", "status_code": "error", "response": str(e)}
 
 @app.route("/send_like", methods=["GET"])
 def send_like():
@@ -97,10 +98,10 @@ def send_like():
     encrypted_api_data = encrypt_api(f"08{encrypted_id}1007")
     TARGET = bytes.fromhex(encrypted_api_data)
 
-    max_likes = 100
     likes_sent = 0
     results = []
     failed = []
+    max_likes = 100
 
     while likes_sent < max_likes:
         # جلب كل التوكنات من الرابط
@@ -110,21 +111,20 @@ def send_like():
             token_items = list(tokens_dict.items())
             random.shuffle(token_items)
         except Exception as e:
-            time.sleep(5)
-            continue
+            return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
 
         # إرسال اللايك بالتوازي
         with ThreadPoolExecutor(max_workers=50) as executor:
             futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
                        for uid, token in token_items}
             for future in as_completed(futures):
+                uid, token = futures[future]
                 res = future.result()
-                if res["status"] == "success":
+                if isinstance(res["response"], dict) and res["response"].get("success"):
                     with lock:
                         if likes_sent < max_likes:
                             likes_sent += 1
                             results.append(res)
-                            print(f"نجح توكن {likes_sent} ✅")
                 else:
                     failed.append(res)
                 if likes_sent >= max_likes:
