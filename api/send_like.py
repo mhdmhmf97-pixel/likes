@@ -44,6 +44,7 @@ def encrypt_api(plain_text):
     cipher_text = cipher.encrypt(pad(plain_text, AES.block_size))
     return cipher_text.hex()
 
+# ------------------- إرسال لايك -------------------
 def send_like_request(token, TARGET):
     url = "https://clientbp.ggblueshark.com/LikeProfile"
     headers = {
@@ -58,19 +59,22 @@ def send_like_request(token, TARGET):
     }
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
-        content_text = resp.content.decode(errors="ignore").strip()
+        # اعرض كل المعلومات من السيرفر
         return {
             "token": token[:20]+"...",
             "status_code": resp.status_code,
-            "response_text": content_text
+            "headers": dict(resp.headers),
+            "response_text": resp.text
         }
     except Exception as e:
         return {
             "token": token[:20]+"...",
-            "status_code": 0,
+            "status_code": "error",
+            "headers": {},
             "response_text": str(e)
         }
 
+# ------------------- API Flask -------------------
 @app.route("/send_like", methods=["GET"])
 def send_like():
     player_id = request.args.get("player_id")
@@ -84,10 +88,8 @@ def send_like():
     now = time.time()
     last_sent = last_sent_cache.get(player_id_int, 0)
     if now - last_sent < 86400:
-        return jsonify({
-            "error": "Likes already sent within last 24 hours",
-            "seconds_until_next_allowed": int(86400 - (now - last_sent))
-        }), 429
+        return jsonify({"error": "Likes already sent within last 24 hours",
+                        "seconds_until_next_allowed": int(86400 - (now - last_sent))}), 429
 
     # جلب معلومات اللاعب
     try:
@@ -127,7 +129,6 @@ def send_like():
             for future in as_completed(futures):
                 uid, token = futures[future]
                 res = future.result()
-                # تسجيل كل توكن مع الرد النصي الكامل
                 if res["status_code"] == 200:
                     with lock:
                         if likes_sent < max_likes:
@@ -137,10 +138,6 @@ def send_like():
                     failed.append(res)
                 if likes_sent >= max_likes:
                     break
-
-        # إذا جميع التوكنات انتهت ولم نصل للحد، نخرج
-        if likes_sent >= max_likes or not token_items:
-            break
 
     last_sent_cache[player_id_int] = now
     likes_after = likes_before + likes_sent
