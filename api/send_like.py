@@ -59,7 +59,9 @@ def send_like_request(token, TARGET):
     }
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
-        # اعرض كل المعلومات من السيرفر
+        # تجاهل أي توكن يعطي "invalid signature"
+        if "invalid" in resp.text.lower():
+            return {"token": token[:20]+"...", "status_code": 401, "response_text": "invalid signature"}
         return {
             "token": token[:20]+"...",
             "status_code": resp.status_code,
