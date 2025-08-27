@@ -97,10 +97,10 @@ def send_like():
     encrypted_api_data = encrypt_api(f"08{encrypted_id}1007")
     TARGET = bytes.fromhex(encrypted_api_data)
 
+    max_likes = 100
     likes_sent = 0
     results = []
     failed = []
-    max_likes = 100
 
     while likes_sent < max_likes:
         # جلب كل التوكنات من الرابط
@@ -110,20 +110,21 @@ def send_like():
             token_items = list(tokens_dict.items())
             random.shuffle(token_items)
         except Exception as e:
-            return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
+            time.sleep(5)
+            continue
 
         # إرسال اللايك بالتوازي
         with ThreadPoolExecutor(max_workers=50) as executor:
             futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
                        for uid, token in token_items}
             for future in as_completed(futures):
-                uid, token = futures[future]
                 res = future.result()
                 if res["status"] == "success":
                     with lock:
                         if likes_sent < max_likes:
                             likes_sent += 1
                             results.append(res)
+                            print(f"نجح توكن {likes_sent} ✅")
                 else:
                     failed.append(res)
                 if likes_sent >= max_likes:
@@ -142,3 +143,6 @@ def send_like():
         "success_tokens": results,
         "failed_tokens": failed
     })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
