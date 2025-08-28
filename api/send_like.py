@@ -59,7 +59,6 @@ def send_like_request(token, TARGET):
     }
     try:
         resp = httpx.post(url, headers=headers, data=TARGET, verify=False, timeout=10)
-        # تجاهل أي توكن يعطي "invalid signature"
         if "invalid" in resp.text.lower():
             return {"token": token[:20]+"...", "status_code": 401, "response_text": "invalid signature"}
         return {
@@ -114,32 +113,29 @@ def send_like():
     failed = []
     max_likes = 100
 
-    while likes_sent < max_likes:
-        # جلب كل التوكنات من الرابط
-        try:
-            token_data = httpx.get("https://aauto-token.onrender.com/api/get_jwt", timeout=50).json()
-            tokens_dict = token_data.get("tokens", {})
-            token_items = list(tokens_dict.items())
-            random.shuffle(token_items)
-        except Exception as e:
-            return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
+    # ✅ جلب كل التوكنات مرة واحدة فقط
+    try:
+        token_data = httpx.get("https://aauto-token.onrender.com/api/get_jwt", timeout=50).json()
+        tokens_dict = token_data.get("tokens", {})
+        token_items = list(tokens_dict.items())
+        random.shuffle(token_items)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
 
-        # إرسال اللايك بالتوازي
-        with ThreadPoolExecutor(max_workers=200) as executor:
-            futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
-                       for uid, token in token_items}
-            for future in as_completed(futures):
-                uid, token = futures[future]
-                res = future.result()
-                if res["status_code"] == 200:
-                    with lock:
-                        if likes_sent < max_likes:
-                            likes_sent += 1
-                            results.append(res)
-                else:
-                    failed.append(res)
-                if likes_sent >= max_likes:
-                    break
+    # ✅ كل توكن يُستخدم مرة واحدة فقط
+    with ThreadPoolExecutor(max_workers=200) as executor:
+        futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
+                   for uid, token in token_items}
+        for future in as_completed(futures):
+            uid, token = futures[future]
+            res = future.result()
+            if res["status_code"] == 200:
+                with lock:
+                    if likes_sent < max_likes:
+                        likes_sent += 1
+                        results.append(res)
+            else:
+                failed.append(res)
 
     last_sent_cache[player_id_int] = now
     likes_after = likes_before + likes_sent
