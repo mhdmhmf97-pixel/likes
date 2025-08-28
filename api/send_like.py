@@ -113,7 +113,7 @@ def send_like():
     failed = []
     max_likes = 100
 
-    # جلب التوكنات
+    # ✅ جلب كل التوكنات مرة واحدة فقط
     try:
         token_data = httpx.get("https://aauto-token.onrender.com/api/get_jwt", timeout=50).json()
         tokens_dict = token_data.get("tokens", {})
@@ -122,19 +122,20 @@ def send_like():
     except Exception as e:
         return jsonify({"error": f"Failed to fetch tokens: {e}"}), 500
 
-    # كل توكن يُستخدم مرة واحدة فقط، مع قفل لتفادي زيادة وهمية
+    # ✅ كل توكن يُستخدم مرة واحدة فقط
     with ThreadPoolExecutor(max_workers=100) as executor:
         futures = {executor.submit(send_like_request, token, TARGET): (uid, token)
                    for uid, token in token_items}
         for future in as_completed(futures):
             uid, token = futures[future]
             res = future.result()
-            with lock:
-                if res["status_code"] == 200 and likes_sent < max_likes:
-                    likes_sent += 1
-                    results.append(res)
-                else:
-                    failed.append(res)
+            if res["status_code"] == 200:
+                with lock:
+                    if likes_sent < max_likes:
+                        likes_sent += 1
+                        results.append(res)
+            else:
+                failed.append(res)
 
     last_sent_cache[player_id_int] = now
     likes_after = likes_before + likes_sent
@@ -143,7 +144,7 @@ def send_like():
         "player_id": player_uid,
         "player_name": player_name,
         "likes_before": likes_before,
-        "likes_added": likes_sent,  # عدد اللايكات الفعلي ولن يتجاوز 100
+        "likes_added": likes_sent,
         "likes_after": likes_after,
         "seconds_until_next_allowed": 86400,
         "success_tokens": results,
