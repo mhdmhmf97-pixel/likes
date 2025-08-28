@@ -76,6 +76,7 @@ def send_like_request(token, TARGET):
         }
 
 # ------------------- API Flask -------------------
+# ------------------- API Flask -------------------
 @app.route("/send_like", methods=["GET"])
 def send_like():
     player_id = request.args.get("player_id")
@@ -111,7 +112,6 @@ def send_like():
     likes_sent = 0
     results = []
     failed = []
-    max_likes = 100
 
     # ✅ جلب كل التوكنات مرة واحدة فقط
     try:
@@ -131,9 +131,8 @@ def send_like():
             res = future.result()
             if res["status_code"] == 200:
                 with lock:
-                    if likes_sent < max_likes:
-                        likes_sent += 1
-                        results.append(res)
+                    likes_sent += 1           # فقط اللايكات الفعلية تُحسب
+                    results.append(res)
             else:
                 failed.append(res)
 
@@ -144,12 +143,13 @@ def send_like():
         "player_id": player_uid,
         "player_name": player_name,
         "likes_before": likes_before,
-        "likes_added": likes_sent,
+        "likes_added": likes_sent,       # الآن عدد اللايكات فعلي
         "likes_after": likes_after,
         "seconds_until_next_allowed": 86400,
         "success_tokens": results,
         "failed_tokens": failed
     })
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
